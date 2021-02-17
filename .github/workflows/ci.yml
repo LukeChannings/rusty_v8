@@ -7,7 +7,7 @@ jobs:
     name: ${{ matrix.config.variant }} ${{ matrix.config.target }}
     if: |
       github.event_name == 'push' ||
-      !startsWith(github.event.pull_request.head.label, 'denoland:')
+      !startsWith(github.event.pull_request.head.label, 'lukechannings:')
     runs-on: ${{ matrix.config.os }}
     timeout-minutes: 120
     strategy:
@@ -21,38 +21,9 @@ jobs:
         'refs/heads/master' && !startsWith(github.ref, 'refs/tags/')) }}
       matrix:
         config:
-          - os: macOS-latest
-            target: x86_64-apple-darwin
-            variant: debug
-
-          - os: macOS-latest
-            target: x86_64-apple-darwin
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
             variant: release
-
-          - os: ubuntu-latest-xl
-            target: x86_64-unknown-linux-gnu
-            variant: debug
-
-          - os: ubuntu-latest-xl
-            target: x86_64-unknown-linux-gnu
-            variant: release
-
-          - os: windows-2019
-            target: x86_64-pc-windows-msvc
-            variant: release # Note: we do not support windows debug builds.
-
-          # Disabled because an apparent sscache bug causes it to crash with the
-          # following error:
-          #   [rusty_v8 0.15.0] sccache: error : Invalid checksum
-          #   [rusty_v8 0.15.0] sccache: error : corrupt deflate stream
-          #
-          # - os: ubuntu-latest-xl
-          #   target: aarch64-unknown-linux-gnu
-          #   variant: debug
-          #
-          # - os: ubuntu-latest-xl
-          #   target: aarch64-unknown-linux-gnu
-          #   variant: release
 
     env:
       V8_FROM_SOURCE: true
@@ -119,26 +90,6 @@ jobs:
           restore-keys:
             ${{ matrix.config.target }}-${{ matrix.config.variant }}-
 
-
-        # It seems that the 'target' directory does not always get restored
-        # from cache correctly on MacOS. In the build log we see the following:
-        #
-        #   Fresh serde_derive v1.0.115
-        #
-        # But a little while after that Cargo aborts because 'serde_derive' is
-        # now nowhere to be found. We're not the only ones experiencing this,
-        # see https://github.com/actions-rs/cargo/issues/111.
-        #
-        #   error[E0463]: can't find crate for `serde_derive`
-        #   ##[error]   --> /Users/runner/.cargo/registry/src/github.com-
-        #       |           1ecc6299db9ec823/serde-1.0.115/src/lib.rs:285:1
-        #       |
-        #   285 | extern crate serde_derive;
-        #       | ^^^^^^^^^^^^^^^^^^^^^^^^^^ can't find crate
-      - name: Work around MacOS + Cargo + Github Actions cache bug
-        if: runner.os == 'macOS'
-        run: cargo clean -p serde_derive
-
       - name: Install and start sccache
         shell: pwsh
         env:
@@ -162,7 +113,6 @@ jobs:
           . $basename/sccache --start-server
           echo "$(pwd)/$basename" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-
       - name: Test
         run:
           cargo test -vv --all-targets --locked ${{ env.CARGO_VARIANT_FLAG }}
@@ -184,33 +134,12 @@ jobs:
       - name: Binary publish
         uses: softprops/action-gh-release@v1
         if: >-
-          github.repository == 'denoland/rusty_v8' &&
+          github.repository == 'lukechannings/rusty_v8' &&
           startsWith(github.ref, 'refs/tags/')
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: target/${{ env.LIB_NAME }}_${{ matrix.config.variant }}_${{ matrix.config.target }}.${{ env.LIB_EXT }}
-
-      # TODO: add clang-format and maybe cpplint.
-
-      # TODO(ry) It would be ideal to check that "cargo package" also runs and
-      # that the resulting package is less than 10 MB. However it seems to
-      # result in a complete V8 rebuild. For now just be careful not to manually
-      # check that "cargo package" is working when updating the build.
-      # - name: Package
-      #   run: cargo package -vv --locked
-
-      - name: Publish
-        # Only publish on x64 linux when there's a git tag:
-        if: >-
-          startsWith(github.ref, 'refs/tags/') &&
-          github.repository == 'denoland/rusty_v8' &&
-          startsWith(matrix.config.target , 'x86_64') &&
-          matrix.config.variant == 'debug' &&
-          runner.os == 'Linux'
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
-        run: cargo publish -vv
 
       - name: Stop sccache
         if: always()
